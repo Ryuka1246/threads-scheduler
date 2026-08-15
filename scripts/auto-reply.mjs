@@ -17,7 +17,7 @@ const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
 const capArg = args.indexOf('--cap');
 const RUN_CAP = capArg >= 0 ? Number(args[capArg + 1]) : Infinity; // 既定=上限なし(全件返信)。--cap で任意に制限可
-const PER_ACCOUNT_CAP = Infinity; // 1アカ上限なし(溜まった分を一掃)。ブレーキは DELAY_MS の1件3秒ペーシングが担う
+const PER_ACCOUNT_CAP = 15; // 1アカ1回15件まで(返信総数の上限ではなく"連投レート"の凍結ガード)。全コメントは数サイクルで返信される
 const POST_WINDOW_H = 40;   // 直近◯時間の自分の投稿のコメントだけ対象
 const DELAY_MS = 3000;      // 返信ごとの間隔(スパム判定回避=これが本当のブレーキ)
 const TIMEOUT_MS = 12000;
