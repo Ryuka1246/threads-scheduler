@@ -16,8 +16,8 @@ const API = 'https://graph.threads.net/v1.0';
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
 const capArg = args.indexOf('--cap');
-const RUN_CAP = capArg >= 0 ? Number(args[capArg + 1]) : 120; // 1実行の返信総数上限(全アカ合計・スパム判定の保険)
-const PER_ACCOUNT_CAP = 20; // 1アカあたりの1実行上限(全アカに配りつつ溜まった分を大きく消化)
+const RUN_CAP = capArg >= 0 ? Number(args[capArg + 1]) : Infinity; // 既定=上限なし(全件返信)。--cap で任意に制限可
+const PER_ACCOUNT_CAP = Infinity; // 1アカ上限なし(溜まった分を一掃)。ブレーキは DELAY_MS の1件3秒ペーシングが担う
 const POST_WINDOW_H = 40;   // 直近◯時間の自分の投稿のコメントだけ対象
 const DELAY_MS = 3000;      // 返信ごとの間隔(スパム判定回避=これが本当のブレーキ)
 const TIMEOUT_MS = 12000;
