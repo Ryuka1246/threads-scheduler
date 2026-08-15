@@ -5,7 +5,7 @@ name: Post Scheduler
 
 on:
   schedule:
-    - cron: '*/30 22,23,0-14 * * *'   # UTC。JST 07:00〜23:30 を30分ごと
+    - cron: '*/5 22,23,0-14 * * *'   # UTC。JST 07:00〜23:55 を5分ごと(各slot時刻に近づける)
   workflow_dispatch: {}                # 手動実行も可
 
 concurrency:
