@@ -1,0 +1,27 @@
+name: Post Scheduler
+# スケジュール投稿。Secrets の THREADS_TOKENS(トークン) と POSTS_JSON(その日の投稿データ=gzip+base64) で動く。
+# 投稿本文・アカウント情報はコードに含めず、すべて Secrets から注入する。
+# JST活動帯(07〜24時=UTC 22〜14時)のみ30分ごとに起動して無料枠を節約。
+
+on:
+  schedule:
+    - cron: '*/30 22,23,0-14 * * *'   # UTC。JST 07:00〜23:30 を30分ごと
+  workflow_dispatch: {}                # 手動実行も可
+
+concurrency:
+  group: post-scheduler
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 予定投稿を実行
+        env:
+          THREADS_TOKENS: ${{ secrets.THREADS_TOKENS }}
+          POSTS_JSON: ${{ secrets.POSTS_JSON }}
+        run: node scripts/post-scheduler.mjs

@@ -1,0 +1,26 @@
+name: Auto Reply
+# コメント自動返信。Secrets の THREADS_TOKENS(トークン) と REPLY_PARTS(返信テンプレJSON) で動く。
+# 返信文・アカウント情報はコードに含めず、すべて Secrets から注入する。
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # 15分ごと(UTC)
+  workflow_dispatch: {}        # 手動実行も可
+
+concurrency:
+  group: auto-reply
+  cancel-in-progress: false
+
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 自動返信を実行
+        env:
+          THREADS_TOKENS: ${{ secrets.THREADS_TOKENS }}
+          REPLY_PARTS: ${{ secrets.REPLY_PARTS }}
+        run: node scripts/auto-reply.mjs --cap 15
