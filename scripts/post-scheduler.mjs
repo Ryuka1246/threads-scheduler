@@ -36,6 +36,7 @@ const posts = JSON.parse(postsRaw);
 // 予定時刻(JST)を過ぎ、かつGRACE以内の投稿を抽出
 const due = [];
 for (const p of posts) {
+  if (p.date && p.date !== today) continue; // 日付ガード: 今日(JST)分だけ投稿。前日夜にPOSTS_JSONを翌日分へ更新しても早出ししない
   const [hh, mm] = String(p.time).split(':').map(Number);
   const schedUtc = Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate(), hh - 9, mm, 0);
   const lateMin = Math.floor((now - schedUtc) / 60000);
