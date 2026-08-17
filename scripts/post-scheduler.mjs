@@ -31,7 +31,9 @@ if (process.env.POSTS_JSON) {
   if (!existsSync(postsPath)) { console.log(`[post-scheduler] POSTS_JSON も posts/${today}.json も無い → 何もしない`); process.exit(0); }
   postsRaw = readFileSync(postsPath, 'utf8');
 }
-const posts = JSON.parse(postsRaw);
+const parsed = JSON.parse(postsRaw);
+// POSTS_JSON は「配列(単日・後方互換)」または「{ 'YYYY-MM-DD': [...] }(複数日)」を許容。複数日なら今日(JST)分を選ぶ
+const posts = Array.isArray(parsed) ? parsed : (parsed[today] || []);
 
 // 予定時刻(JST)を過ぎ、かつGRACE以内の投稿を抽出
 const due = [];
