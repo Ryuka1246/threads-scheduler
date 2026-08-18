@@ -50,8 +50,9 @@ if (!due.length) process.exit(0);
 async function jsonFetch(url, opt) { const r = await fetch(url, opt); return r.json(); }
 async function alreadyPosted(tok, text) {
   const r = await jsonFetch(`${A}/me/threads?fields=id,text,timestamp&limit=25&access_token=${encodeURIComponent(tok)}`);
-  const key = text.slice(0, 20);
-  return (r.data || []).some(p => (p.text || '').slice(0, 20) === key);
+  const key = text.slice(0, 24);
+  const cutoff = Date.now() - 20 * 3600 * 1000; // 20時間以内の投稿だけを重複判定に使う(前日の同一フックへの誤マッチ防止)
+  return (r.data || []).some(p => (p.text || '').slice(0, 24) === key && Date.parse(p.timestamp || 0) >= cutoff);
 }
 async function pub(tok, text, replyTo) {
   const body = { media_type: 'TEXT', text };
