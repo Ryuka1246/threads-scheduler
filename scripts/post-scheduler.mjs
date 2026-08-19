@@ -75,7 +75,7 @@ for (const p of due) {
     if (DRY) { console.log(`  [DRY] ${p.account} ${p.slot} ${p.time}(${p.lateMin}分経過) ${p.cta_comment?'+コメ':''} ${p.tree_reply?'+ツリー':''}`); continue; }
     const postId = await pub(tok, p.text);
     // コメント誘導: 本文に埋込プロンプト(を置い等)が無い投稿だけ、自分の最初のコメントとして投稿(二重投稿回避)
-    const hasBodyPrompt = /を置い|置きな|を落と|落としな|置いて|置いておくれ/.test(p.text);
+    const hasBodyPrompt = /を置い|置きな|を落と|落としな|置いて|置いておくれ|コメントして|コメントで/.test(p.text);
     if (p.cta_comment && !hasBodyPrompt) { await sleep(DELAY_MS); try { await pub(tok, p.cta_comment, postId); } catch (e) {} }
     // ツリー(2投稿目): tree_reply があるものだけ(誘導を持たないアカは data 側で null)
     let tinfo = '';
