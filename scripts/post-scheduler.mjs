@@ -11,7 +11,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const A = 'https://graph.threads.net/v1.0';
 const DRY = process.argv.includes('--dry');
-const GRACE_MIN = 90;      // 予定時刻から◯分以内なら投稿(それ以上遅れたら見送り)
+const GRACE_MIN = 110;     // 予定時刻から◯分以内なら投稿。GitHub cronの間引き(実測で最大~80分空く)を吸収しつつ、最短の枠間隔(夜1 20:00→夜2 22:00=120分)を割らない上限に設定
 const DELAY_MS = 3000;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
