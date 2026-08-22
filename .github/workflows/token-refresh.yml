@@ -1,0 +1,43 @@
+name: Token Refresh
+# Threads 長期トークンの自動更新。毎週、全アカのトークンを refresh_access_token で更新し
+# (有効期限を60日リセット)、更新後の値を THREADS_TOKENS Secret に書き戻す。
+# ── 以前は n8n に組んでいた仕組みを公開リポ側へ移植(2026-08-22)。もう移行漏れで失効しない。
+#
+# ★必要な追加Secret: GH_PAT
+#   Secret を書き換えるには、リポジトリの Secrets への書き込み権限を持つ Personal Access Token が要る。
+#   これを Secret 名 GH_PAT として登録しておくこと(fine-grained PAT / Secrets: Read and write でOK)。
+#   GH_PAT が未設定の場合、更新自体は走るが Secret への書き戻しはスキップされる(60日以内に手動更新が必要)。
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'   # 毎週日曜 03:00 UTC(トークンは24h以上経過していれば毎回60日にリセットされる)
+  workflow_dispatch: {}    # 手動実行も可
+
+concurrency:
+  group: token-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: トークンを更新(refreshed.json に出力)
+        env:
+          THREADS_TOKENS: ${{ secrets.THREADS_TOKENS }}
+        run: node scripts/refresh-tokens.mjs > refreshed.json
+
+      - name: 更新後トークンを THREADS_TOKENS Secret に書き戻す
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::GH_PAT 未設定のため Secret 書き戻しをスキップ。60日以内に手動更新が必要です。"
+            exit 0
+          fi
+          gh secret set THREADS_TOKENS -R ${{ github.repository }} < refreshed.json
+          echo "✅ THREADS_TOKENS を更新しました"
