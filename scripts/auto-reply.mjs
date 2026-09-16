@@ -19,7 +19,7 @@ const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
 const capArg = args.indexOf('--cap');
 const RUN_CAP = capArg >= 0 ? Number(args[capArg + 1]) : Infinity;
-const PER_ACCOUNT_CAP = Infinity;
+const PER_ACCOUNT_CAP = 15;       // 1アカ1回15件まで(バースト暴発→凍結を防ぐ安全弁・2026-09-16)。溜まりは15分毎cronで緩やかに消化
 const POST_WINDOW_H = 40;         // 返信対象=直近◯時間の自分の投稿のコメントだけ
 const COUNT_WINDOW_POSTS = 60;    // リピーター判定用=直近◯投稿を遡ってコメント回数を数える(約8日分)
 const TIER2_MIN = 2;              // 常連=コメント2回以上
