@@ -71,10 +71,12 @@ const safe = s => String(s).replace(/[\\/:*?"<>|]/g, '_');
 
 async function jsonFetch(url, opt) { const r = await fetch(url, opt); return r.json(); }
 
-// その日の全アカJSONを1回だけ取得してメモリにキャッシュ（端末内の全アカで使い回す）
-let _dayCache = { date: null, all: null };
+// その日の全アカJSONを「毎サイクル」取得する（後から追加した枠も最大5分で自動反映）。
+// ★以前は当日分を一度だけキャッシュして使い回していたため、昼に取得後にgistへ追加した
+//   夕方以降の枠が端末に届かず投稿されなかった。その不具合を防ぐため固定キャッシュを廃止。
+// 取得に失敗したときだけ、ローカルファイル→前回取得できた内容 の順でフォールバックする。
+let _lastGood = { date: null, all: null };
 async function loadDayAll(date) {
-  if (_dayCache.date === date && _dayCache.all) return _dayCache.all;
   let all = null;
   if (cfg.posts_url) {
     const url = cfg.posts_url.replace('{date}', date);
@@ -85,20 +87,18 @@ async function loadDayAll(date) {
     const p = join(HERE, 'posts', `${date}.json`);
     if (existsSync(p)) { try { all = JSON.parse(readFileSync(p, 'utf8')); } catch {} }
   }
-  _dayCache = { date, all };
+  if (!all && _lastGood.date === date) all = _lastGood.all;  // 取得全滅時は前回取れた内容で代替
+  if (all) _lastGood = { date, all };
   return all;
 }
 
-// 指定アカ分の投稿を用意（端末ローカルのキャッシュ→当日全アカJSON→アカでフィルタ）
+// 指定アカ分の投稿を用意（毎サイクル当日全アカJSONを取得→アカでフィルタ）。
+// ★投稿一覧はキャッシュしない＝gistに枠を足せば次サイクルで即反映。二重投稿は posted_*.json で防ぐ。
 async function loadPosts(date, accountName) {
-  const cachePath = join(DATA_DIR, `posts_${date}_${safe(accountName)}.json`);
-  if (existsSync(cachePath)) { try { return JSON.parse(readFileSync(cachePath, 'utf8')); } catch {} }
   const all = await loadDayAll(date);
   if (!all) return null;
   const arr = Array.isArray(all) ? all : (all[date] || []);
-  const mine = arr.filter(p => p.account === accountName);
-  try { writeFileSync(cachePath, JSON.stringify(mine)); } catch {}
-  return mine;
+  return arr.filter(p => p.account === accountName);
 }
 
 // 二重投稿防止（端末ローカル・アカ×slot単位。Metaに削除されても"投げた事実"は残す）
