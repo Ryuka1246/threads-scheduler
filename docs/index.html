@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threads 認可コード</title>
+<style>
+  :root{
+    --bg:#f4f1ea; --card:#fff; --fg:#201c24; --muted:#6b6472;
+    --accent:#7a5cff; --on-accent:#fff; --ok:#1f9d57; --err:#c0392b;
+    --code-bg:#f0ecff; --border:#e2dcd0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#17141a; --card:#211d27; --fg:#f2eef7; --muted:#a59cb3;
+      --accent:#9d86ff; --on-accent:#17141a; --ok:#53d78b; --err:#ff8a7a;
+      --code-bg:#2b2435; --border:#352d40;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px 16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;
+    padding:24px 20px;max-width:440px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.08)}
+  h1{font-size:18px;margin:0 0 4px}
+  p.sub{color:var(--muted);font-size:13px;margin:0 0 18px;line-height:1.6}
+  .label{font-size:12px;color:var(--muted);margin:0 0 6px}
+  .code{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;
+    padding:14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px;
+    word-break:break-all;line-height:1.5;user-select:all}
+  button{margin-top:14px;width:100%;border:0;border-radius:10px;padding:14px;
+    background:var(--accent);color:var(--on-accent);font-size:15px;font-weight:600;cursor:pointer}
+  button:active{opacity:.85}
+  .steps{margin:18px 0 0;padding:14px;background:var(--code-bg);border-radius:10px;
+    font-size:13px;line-height:1.7;color:var(--fg)}
+  .steps b{color:var(--accent)}
+  .err{color:var(--err)} .ok{color:var(--ok);font-weight:600}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+  <div class="card" id="card">
+    <h1>Threads 認可コード</h1>
+    <p class="sub" id="sub">このコードを端末の Termux に貼ると、トークンが自動で取得されます。</p>
+    <div id="body"></div>
+  </div>
+<script>
+// URLの ?code= / ?error= を読み取って表示する。トークン交換は端末側(settoken.mjs)が行うので、
+// このページはコードを見せる・コピーさせるだけ(秘密情報は一切扱わない)。
+(function(){
+  var q = new URLSearchParams(location.search);
+  // Threads はリダイレクト末尾に "#_" を付けることがあるので、ハッシュ側の code も拾う
+  if(!q.get('code') && location.hash){
+    try{ var h = new URLSearchParams(location.hash.replace(/^#/,'')); if(h.get('code')) q = h; }catch(e){}
+  }
+  var code = (q.get('code')||'').replace(/#_.*$/,'');
+  var err = q.get('error'); var errd = q.get('error_description');
+  var body = document.getElementById('body');
+  var sub = document.getElementById('sub');
+
+  if(err){
+    sub.textContent = '認可に失敗しました。端末でやり直してください。';
+    body.innerHTML = '<p class="label">エラー</p><div class="code err">'+
+      escapeHtml(err)+(errd?'\n'+escapeHtml(errd):'')+'</div>';
+    return;
+  }
+  if(!code){
+    sub.textContent = 'このページは認可後に自動で開かれます。';
+    body.innerHTML = '<div class="steps">まだコードがありません。端末の <b class="mono">node settoken.mjs</b> から表示されるURLを開いて「許可」をタップしてください。</div>';
+    return;
+  }
+  body.innerHTML =
+    '<p class="label">認可コード（これをコピー）</p>'+
+    '<div class="code" id="codebox">'+escapeHtml(code)+'</div>'+
+    '<button id="copy">コピーする</button>'+
+    '<div class="steps">① 上の「コピーする」を押す<br>'+
+    '② Termux に戻って、待っている入力欄に<b>貼り付け</b><br>'+
+    '③ Enter → トークンが自動保存されます<br>'+
+    '<span class="err">※コードは1時間で失効・1回のみ有効</span></div>';
+  document.getElementById('copy').addEventListener('click', function(){
+    var t = this;
+    navigator.clipboard.writeText(code).then(function(){
+      t.textContent='✅ コピーしました'; t.classList.add('ok');
+    }).catch(function(){
+      // clipboard APIが使えない時は選択させる
+      var r=document.createRange(); r.selectNode(document.getElementById('codebox'));
+      getSelection().removeAllRanges(); getSelection().addRange(r);
+      t.textContent='長押しでコピーしてください';
+    });
+  });
+
+  function escapeHtml(s){return String(s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+})();
+</script>
+</body>
+</html>

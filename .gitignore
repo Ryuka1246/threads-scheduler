@@ -5,3 +5,6 @@ posts/
 *.b64
 node_modules/
 scripts/*.log
+scripts/device.json
+scripts/device-data/
+scripts/oauth.local.json
