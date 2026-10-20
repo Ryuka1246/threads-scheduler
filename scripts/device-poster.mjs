@@ -51,16 +51,13 @@ const MAX_PER_CYCLE = 1;               // 1アカにつき1サイクル1本だ�
 const PRE_POST_JITTER_MS = 180 * 1000; // 投稿直前に 0〜この範囲でランダム待機（全端末が同じ頃に再起動しても発火時刻をばらす＝同期バースト防止）
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// --- device.json 読み込み（複数アカ / 旧単一形式の両対応） ---
+// --- device.json 読み込み ---
+// device.json は次のどちらでもよい:
+//   (A) 遠隔設定方式【推奨・スマホ操作ゼロ】: { "device_id":"D01", "config_url":"https://.../raw/devices.json" }
+//       → config_url から毎サイクル「担当アカ(account+access_token)と posts_url」を取得する。
+//         アカ追加・トークン更新は config_url 先(秘密gist)を書き換えるだけで反映され、スマホは一切触らない。
+//   (B) ローカル直書き方式【後方互換】: { "device_id":"D01", "posts_url":"...", "accounts":[{account,access_token},...] }
 const cfg = JSON.parse(readFileSync(join(HERE, 'device.json'), 'utf8'));
-let ACCOUNTS = [];
-if (Array.isArray(cfg.accounts) && cfg.accounts.length) {
-  ACCOUNTS = cfg.accounts;
-} else if (cfg.account && cfg.access_token) {
-  ACCOUNTS = [{ account: cfg.account, access_token: cfg.access_token }];  // 後方互換
-}
-ACCOUNTS = ACCOUNTS.filter(a => a && a.account && a.access_token);
-if (!ACCOUNTS.length) { console.error('device.json に accounts[{account, access_token}] が必要です'); process.exit(1); }
 const DEVICE_ID = cfg.device_id || '(no-id)';
 
 const jstNow = () => new Date(Date.now() + 9 * 3600 * 1000);
@@ -73,15 +70,44 @@ const safe = s => String(s).replace(/[\\/:*?"<>|]/g, '_');
 
 async function jsonFetch(url, opt) { const r = await fetch(url, opt); return r.json(); }
 
+// この端末の「担当アカ＋posts_url」を解決する。
+// config_url があれば毎サイクル取得（= アカ追加/トークン更新を遠隔反映）。失敗時は前回成功値→ローカルの順でフォールバック。
+let _liveCfg = null;  // 直近で取得できた { accounts, posts_url }
+async function resolveConfig() {
+  if (cfg.config_url) {
+    try {
+      const r = await fetch(cfg.config_url);
+      if (r.ok) {
+        const c = await r.json();
+        // 対応2形式: ①全端末1ファイル { devices:{ D01:{accounts,posts_url}, ... } }  ②端末ごと1ファイル { accounts, posts_url }
+        const node = (c && c.devices && typeof c.devices === 'object') ? (c.devices[DEVICE_ID] || {}) : (c || {});
+        const accounts = (Array.isArray(node.accounts) ? node.accounts : []).filter(a => a && a.account && a.access_token);
+        const posts_url = node.posts_url || (c && c.posts_url) || cfg.posts_url || null;
+        if (accounts.length) _liveCfg = { accounts, posts_url };
+        else console.log('config_url: この端末のaccountsが空');
+      } else console.log(`config_url ${r.status}`);
+    } catch (e) { console.log('config_url取得失敗:', e.message); }
+  }
+  if (!_liveCfg) {
+    // config_url 未設定 or 取得全滅時: ローカル device.json の直書きを使う（前回成功値があればそれを保持）
+    let local = [];
+    if (Array.isArray(cfg.accounts) && cfg.accounts.length) local = cfg.accounts;
+    else if (cfg.account && cfg.access_token) local = [{ account: cfg.account, access_token: cfg.access_token }];  // 旧単一形式
+    local = local.filter(a => a && a.account && a.access_token);
+    if (local.length) _liveCfg = { accounts: local, posts_url: cfg.posts_url || null };
+  }
+  return _liveCfg || { accounts: [], posts_url: cfg.posts_url || null };
+}
+
 // その日の全アカJSONを「毎サイクル」取得する（後から追加した枠も最大5分で自動反映）。
 // ★以前は当日分を一度だけキャッシュして使い回していたため、昼に取得後にgistへ追加した
 //   夕方以降の枠が端末に届かず投稿されなかった。その不具合を防ぐため固定キャッシュを廃止。
 // 取得に失敗したときだけ、ローカルファイル→前回取得できた内容 の順でフォールバックする。
 let _lastGood = { date: null, all: null };
-async function loadDayAll(date) {
+async function loadDayAll(date, postsUrl) {
   let all = null;
-  if (cfg.posts_url) {
-    const url = cfg.posts_url.replace('{date}', date);
+  if (postsUrl) {
+    const url = postsUrl.replace('{date}', date);
     try { const r = await fetch(url); if (r.ok) all = await r.json(); else console.log(`posts_url ${r.status}`); }
     catch (e) { console.log('posts_url取得失敗:', e.message); }
   }
@@ -96,8 +122,8 @@ async function loadDayAll(date) {
 
 // 指定アカ分の投稿を用意（毎サイクル当日全アカJSONを取得→アカでフィルタ）。
 // ★投稿一覧はキャッシュしない＝gistに枠を足せば次サイクルで即反映。二重投稿は posted_*.json で防ぐ。
-async function loadPosts(date, accountName) {
-  const all = await loadDayAll(date);
+async function loadPosts(date, accountName, postsUrl) {
+  const all = await loadDayAll(date, postsUrl);
   if (!all) return null;
   const arr = Array.isArray(all) ? all : (all[date] || []);
   return arr.filter(p => p.account === accountName);
@@ -140,8 +166,8 @@ async function pub(text, token) {
 }
 
 // 1アカ分の「予定時刻が来た投稿」を処理
-async function runAccount(acc, date) {
-  const posts = await loadPosts(date, acc.account);
+async function runAccount(acc, date, postsUrl) {
+  const posts = await loadPosts(date, acc.account, postsUrl);
   if (!posts || !posts.length) { console.log(`[${jstNow().toISOString().slice(11,16)}JST] ${date} ${acc.account} 分なし`); return; }
   const posted = loadPosted(date, acc.account);
   const now = Date.now();
@@ -178,13 +204,15 @@ async function runAccount(acc, date) {
 // 1サイクル = この端末の全アカを順番に処理（アカ間は小休止で同時発火を避ける）
 async function cycle() {
   const date = todayStr();
-  for (const acc of ACCOUNTS) {
-    try { await runAccount(acc, date); } catch (e) { console.log(`${acc.account} cycleエラー:`, e.message); }
+  const { accounts, posts_url } = await resolveConfig();  // 毎サイクル担当アカを解決（遠隔での追加/更新を反映）
+  if (!accounts.length) { console.log(`[${jstNow().toISOString().slice(11,16)}JST] 担当アカ未取得（config_url/device.jsonを確認）`); return; }
+  for (const acc of accounts) {
+    try { await runAccount(acc, date, posts_url); } catch (e) { console.log(`${acc.account} cycleエラー:`, e.message); }
     await sleep(BETWEEN_ACCOUNTS_MS);
   }
 }
 
-console.log(`[device-poster] device=${DEVICE_ID} accounts=[${ACCOUNTS.map(a => a.account).join(', ')}] / ${DRY ? 'DRY ' : ''}${ONCE ? '単発' : '常駐(5分間隔)'} 起動`);
+console.log(`[device-poster] device=${DEVICE_ID} / ${cfg.config_url ? 'config_url方式(遠隔)' : 'ローカルaccounts方式'} / ${DRY ? 'DRY ' : ''}${ONCE ? '単発' : '常駐(5分間隔)'} 起動`);
 if (ONCE) { await cycle(); process.exit(0); }
 while (true) {
   try { await cycle(); } catch (e) { console.log('cycleエラー:', e.message); }

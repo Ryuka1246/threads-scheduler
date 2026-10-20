@@ -1,0 +1,17 @@
+{
+  "_comment": "config_url 先(秘密gist)に置く中身の例。これ1ファイルで全端末を管理できる。RYUKAさんがPCで編集してgistを更新する(トークンを含むのでpublicリポには置かない)。アカ追加=該当deviceのaccountsに1行足すだけ→各端末が次サイクル(最大5分)で自動反映。スマホ操作ゼロ。",
+  "posts_url": "https://raw.githubusercontent.com/<ユーザー>/<リポジトリ>/main/posts/{date}.json",
+  "devices": {
+    "D01": {
+      "accounts": [
+        { "account": "千鶴",   "access_token": "本家01のThreadsアクセストークン" },
+        { "account": "ちづる", "access_token": "2アカ目01のThreadsアクセストークン" }
+      ]
+    },
+    "D02": {
+      "accounts": [
+        { "account": "小梅",   "access_token": "本家02のThreadsアクセストークン" }
+      ]
+    }
+  }
+}

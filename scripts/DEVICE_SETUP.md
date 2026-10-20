@@ -1,4 +1,32 @@
-# 端末ローカル投稿セットアップ（12端末 × 2アカ = 24アカ）
+# 端末ローカル投稿セットアップ
+
+## ★ゼロタッチ運用（推奨・スマホ操作は最初の1回だけ）
+
+「アカ追加のたび」「コード修正のたび」にスマホを触らずに済ませる構成。仕組みは3経路の自動取得：
+
+| 変えたいもの | どこを直す（PC/gist側） | 端末への反映 |
+|---|---|---|
+| コード（device-poster等） | リポジトリに push | `run-forever.sh` が毎サイクル `git pull` |
+| 投稿データ（枠追加等） | posts の gist を更新 | 毎サイクル `posts_url` を再取得 |
+| 担当アカ・トークン（アカ追加/更新） | `config_url` 先の秘密gist（`devices.example.json` の形）を編集 | 毎サイクル `config_url` を再取得 |
+
+- 端末の `device.json` は **`device_id` と `config_url` の2項目だけ**（`device.example.json` 参照）。トークンは端末に焼かない。
+- アカを足す = 秘密gistの該当 `device` の `accounts` に1行足すだけ。各端末が最大5分で自動的に拾う。**スマホ操作ゼロ。**
+
+### 端末で最初の1回だけ実行（これ以降は永久にゼロタッチ）
+
+```bash
+pkill -f device-poster.mjs 2>/dev/null; termux-wake-lock 2>/dev/null; cd ~/threads-scheduler && git pull && chmod +x scripts/run-forever.sh && nohup sh scripts/run-forever.sh >> ~/poster.log 2>&1 &
+```
+
+稼働確認: `tail -f ~/poster.log`
+
+> 動いているプロセスには外から何も送れない（端末が取りに行く一方通行）ため、**この初回切り替えだけは物理的に端末操作が必要**。以後は不要。
+> 電源再投入後も自動起動したい場合は Termux:Boot アドオン（F-Droid）で `run-forever.sh` を `~/.termux/boot/` から起動登録する。
+
+---
+
+## （参考）旧来のローカル直書き方式 — 12端末 × 2アカ = 24アカ
 
 リーチ抑制（共有データセンターIP・全アカ同時発火）対策として、GitHub Actions の集中投稿をやめ、
 **12台の物理端末それぞれのモバイル回線（別IP）から、その端末担当の2アカだけ**を投稿する構成。

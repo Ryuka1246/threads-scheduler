@@ -1,8 +1,5 @@
 {
+  "_comment": "【推奨・スマホ操作ゼロ運用】端末にはこの2項目だけ置けばよい。アカ/トークン/posts_url は config_url 先(秘密gist)で管理し、アカ追加やトークン更新はgistを書き換えるだけで反映される(スマホを触らない)。",
   "device_id": "D01",
-  "posts_url": "https://raw.githubusercontent.com/<ユーザー>/<リポジトリ>/main/posts/{date}.json",
-  "accounts": [
-    { "account": "千鶴",   "access_token": "ここに本家01のThreadsアクセストークンを貼る" },
-    { "account": "ちづる", "access_token": "ここに2アカ目01のThreadsアクセストークンを貼る" }
-  ]
+  "config_url": "https://gist.githubusercontent.com/<ユーザー>/<gist_id>/raw/devices.json"
 }
