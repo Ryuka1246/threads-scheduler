@@ -6,7 +6,7 @@
 // ★導線(2026-08-10〜厳守): 着地は必ず「DMに『鑑定』とだけ送ってね」。LINE直リンク/「プロフィールのリンク」誘導は凍結・シャドウバンリスクのため全面禁止。
 // ★リピーター対応(2026-09-16): 直近COUNT_WINDOW_POSTS投稿のコメントをusername別集計し、コメント回数で3段階(t1=初回 / t2=常連2〜4回 / t3=超常連5回+)に文言を出し分け。常連ほど丁寧にDM『鑑定』へ誘導。状態ファイルは持たずその場再計算(状態レス設計を維持)。
 // トークン: 環境変数 THREADS_TOKENS(GitHub Actions) or scripts/tokens.env(ローカル・gitignore済み)
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -59,6 +59,29 @@ Object.assign(PARTS, {
   "11_梨奈": {"emoji":["🌺","🌙","✨"],"t1":{"open":["その印、しっかり受け取ったさー。","そっと置いてくれたさー、届いてるよ〜。","ありがとぉ〜、ちゃんと視たはず。"],"mid":["お礼に、霊感であんたの今をひとつ視るさー。DMに『鑑定』とだけ送ってね〜、来た順によ〜","ひとりで抱えんでいいはず。DMに『鑑定』送ってくれたら、今日のうちに今を視るさー","お代はいらんよ〜。DMに『鑑定』送ってくれた人に、ひとつ返すさー"]},"t2":{"open":["また来てくれたさー、嬉しいよ〜。","いつも見ててくれて、ありがとぉ〜。"],"mid":["何度も来てくれるあんたに、ひとつ視るさー。DMに『鑑定』とだけ送ってね〜","これも縁はず。DMに『鑑定』送ってくれたら、今日は先に視るさー"]},"t3":{"open":["いつも来てくれるあんた、もう他人とは思えんさー。","あんたのこと、しっかり覚えたよ〜。いつもありがとぉ〜。"],"mid":["ここまで来てくれたあんたに、コメントだけじゃ足りんさー。DMに『鑑定』送ってね〜、じっくり視るよ〜","あんたは特別さー。DMに『鑑定』とだけ送ってね〜、先に視るはず"]}},
   "12_雪": {"emoji":["💙","🌙","✨"],"t1":{"open":["その印、しっかり受け取ったよ。","そっと置いてくれたんさ、届いてるよ。","ありがとう、ちゃんと視たよ。"],"mid":["お礼に、カードであんたの今をひとつ視るね。DMに『鑑定』とだけ送って、来た順にね","気休めは言わんすけ、事実だけ返すよ。DMに『鑑定』送ってくれたら、今日のうちに視るね","お代はいらんよ。DMに『鑑定』送ってくれた人に、今をひとつ返すすけ"]},"t2":{"open":["また来てくれたんさ、覚えてるよ。","いつも見ててくれて、ありがとうね。"],"mid":["何度も来てくれるあんたに、一枚ひくね。DMに『鑑定』とだけ送って","これも縁でしょ。DMに『鑑定』送ってくれたら、今日は先に視るよ"]},"t3":{"open":["いつも来てくれるあんた、もう他人とは思えんよ。","あんたのこと、しっかり覚えたすけ。いつもありがとうね。"],"mid":["ここまで来てくれたあんたに、コメントだけじゃ足りんよ。DMに『鑑定』送って、じっくり視るね","あんたは特別すけ。DMに『鑑定』とだけ送って、先に視るよ"]}},
 });
+// ★E系(まみ/麗羅)の返信文面を復元(b0f38a9より)。device.jsonのバレ名キーで引けるよう bare キーで登録。
+Object.assign(PARTS, {
+  'まみ': {
+    emoji: ['💜', '🦋', '🔥'],
+    t1: { open: ['コメント、受け取ったで。', 'その一言、ちゃんと視たで。', 'よう置いてってくれたな。'], mid: ['お返しに、彼の本音を綺麗事抜きで視たるわ。DMに『鑑定』とだけ送りゃあ、今日動いた子から順にな', 'あんた、まだ都合のいい女で終わる気?彼の"今"、ズバッと視たるで。DMに『鑑定』って送ってちょう', 'その一言の礼や。お代はいらん、DMに『鑑定』と送ってくれた子から今日のうちに視たるで'] },
+    t2: { open: ['また来てくれたな。あんたのこと覚えとるで。', 'よう顔出してくれるがや。', 'その一言、また受け取ったで。'], mid: ['何度も来てくれるあんたや。彼の"今"をちゃんと視たるで、DMに『鑑定』とだけ送りゃあ', 'ここまで通ってくれた縁だで。DMに『鑑定』って送ってくれたら、今日はあんたを先に視たる'] },
+    t3: { open: ['いつも来てくれるあんた、もう他人とは思えんわ。', 'あんたの名前、覚えたで。ありがとうな。', 'こんなに通ってくれる子、そうはおらんて。'], mid: ['これだけ通ってくれたあんたには、コメントじゃ足りん。DMに『鑑定』って送りゃあ、最後まで視たるで', 'あんたほどの常連は特別だがや。DMに『鑑定』とだけ送りゃあ、先に視たるで'] },
+  },
+  '麗羅': {
+    emoji: ['💜', '🤍', '✨'],
+    t1: { open: ['コメント、受け取ったで。', 'その一言、ちゃんと視たで。', 'よう置いてってくれたな、ありがとう。'], mid: ['お返しに、あんたの運が"今どこまで来てるか"うちが正直に視るわ。DMに『鑑定』とだけ送ってきて。ひとりずつ視てる無料鑑定やで', 'あんた運が悪いんちゃうで、受け取る手ぇ下ろしてるだけや。詳しく知りたかったらDMに『鑑定』とだけ送ってきて', 'その一言の礼や。お代はいらん、DMに『鑑定』と送ってくれた子から順にうちが視るわ', '「私なんか」で今日も終わるか、一個だけ受け取ってみるか。DMに『鑑定』と送ってくれたら、うちが正直に視るで'] },
+    t2: { open: ['また来てくれたな。あんたのこと、覚えてるで。', 'よう顔出してくれるやん、うれしいわ。', 'その一言、また受け取ったで。'], mid: ['何度も来てくれるあんたやからな。運の"今"をちゃんと視るわ、DMに『鑑定』とだけ送ってきて', 'ここまで通ってくれた縁やで。DMに『鑑定』と送ってくれたら、今日はあんたを先に視るわ', 'キツいこと言うても、うちはあんたに幸せになってほしいだけやねん。DMに『鑑定』とだけ送ってきて、一緒に視ていこ'] },
+    t3: { open: ['いつも来てくれるあんた、もう他人とは思えんわ。', 'あんたの名前、ちゃんと覚えたで。いつもありがとうな。', 'こんなに通ってくれる子、そうはおらんで。'], mid: ['これだけ通ってくれたあんたには、コメントじゃ足りんわ。DMに『鑑定』とだけ送ってきて、最後までちゃんと視るで', 'あんたほどの常連は特別やねん。DMに『鑑定』とだけ送ってきて、先にあんたの運を視るわ。あんた超強運やで、知らんけど', 'ずっと見てくれてほんまありがとう。DMに『鑑定』と送ってくれたら、今度こそ一個受け取る場所を一緒に探そ'] },
+  },
+});
+
+// ★device.jsonのバレ名 → PARTSの番号付きキー の対応(本家/別垢の12アカ。まみ/麗羅はbareキーで直登録済)
+const ALIAS = {
+  '千鶴': '01_千鶴', 'ちづる': '01_ちづる', '小梅': '02_小梅', 'こうめ': '02_こうめ',
+  'あんな': '03_あんな', 'なな': '04_なな', 'あかり': '05_あかり', 'ゆりあ': '06_ゆりあ',
+  'みお': '07_みお', 'さくら': '09_さくら', 'まりな': '10_まりな', 'りな': '11_りな',
+};
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 async function apiCall(method, url) {
@@ -75,6 +98,16 @@ async function apiCall(method, url) {
 }
 
 function loadTokens() {
+  // 端末ローカル運用: device.json があれば優先(その端末担当アカのみ・トークンもそこ)
+  const devPath = join(HERE, 'device.json');
+  if (!process.env.THREADS_TOKENS && existsSync(devPath)) {
+    try {
+      const d = JSON.parse(readFileSync(devPath, 'utf8'));
+      if (Array.isArray(d.accounts) && d.accounts.length) {
+        return d.accounts.filter(t => t && t.account && t.access_token);
+      }
+    } catch {}
+  }
   const raw = process.env.THREADS_TOKENS || readFileSync(TOKENS_PATH, 'utf8');
   return JSON.parse(raw).filter(t => t && t.account && t.access_token);
 }
@@ -130,8 +163,8 @@ async function main() {
 
   for (const acc of tokens) {
     if (posted >= RUN_CAP) break;
-    const bank = PARTS[acc.account];
-    if (!bank) continue;
+    const bank = PARTS[acc.account] || PARTS[ALIAS[acc.account]];
+    if (!bank) { console.log(`  [${acc.account}] 返信文面なし→スキップ`); continue; }
     const tok = encodeURIComponent(acc.access_token);
     summary[acc.account] = 0;
     tierStat[acc.account] = { t1: 0, t2: 0, t3: 0 };
@@ -197,5 +230,14 @@ async function main() {
 }
 
 // CLI実行時のみmainを走らせる(import時は走らせない=テスト/再利用のため)
+const loopArg = args.indexOf('--loop');
+const LOOP_MIN = loopArg >= 0 ? Number(args[loopArg + 1]) : 0;
 const isCLI = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('scripts/auto-reply.mjs');
-if (isCLI) main().catch(e => { console.error('[auto-reply] 致命的エラー:', e); process.exit(1); });
+if (isCLI) {
+  if (LOOP_MIN > 0) {
+    // 端末常駐: LOOP_MIN分ごとに返信パスを回し続ける(落ちても継続)
+    (async () => { while (true) { await main().catch(e => console.error('[auto-reply] エラー(継続):', e)); await sleep(LOOP_MIN * 60 * 1000); } })();
+  } else {
+    main().catch(e => { console.error('[auto-reply] 致命的エラー:', e); process.exit(1); });
+  }
+}
