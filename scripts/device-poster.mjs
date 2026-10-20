@@ -47,6 +47,8 @@ const GRACE_MIN = 110;                 // 予定時刻から◯分以内なら�
 const CHECK_EVERY_MS = 5 * 60 * 1000;  // 常駐ループの点検間隔（5分）
 const DELAY_MS = 3000;                 // container作成→publish の間
 const BETWEEN_ACCOUNTS_MS = 4000;      // 端末内でアカを順番に処理する際の小休止（同時発火の足跡を避ける）
+const MAX_PER_CYCLE = 1;               // 1アカにつき1サイクル1本だけ投稿（取りこぼしの一括投稿＝同時発火バーストを防ぐ・残りは次サイクルへ）
+const PRE_POST_JITTER_MS = 180 * 1000; // 投稿直前に 0〜この範囲でランダム待機（全端末が同じ頃に再起動しても発火時刻をばらす＝同期バースト防止）
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // --- device.json 読み込み（複数アカ / 旧単一形式の両対応） ---
@@ -154,11 +156,17 @@ async function runAccount(acc, date) {
     if (lateMin >= 0 && lateMin <= GRACE_MIN) due.push({ ...p, lateMin });
   }
   if (!due.length) return;
-  console.log(`[${jst.toISOString().slice(11,16)}JST] ${acc.account}: 期限内 ${due.length}本`);
-  for (const p of due) {
+  // 予定が早い順に並べ、1サイクルで出すのは先頭 MAX_PER_CYCLE 本だけ（残りは次サイクルへ回して自然にばらす）
+  due.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  const batch = due.slice(0, MAX_PER_CYCLE);
+  console.log(`[${jst.toISOString().slice(11,16)}JST] ${acc.account}: 期限内 ${due.length}本 → 今サイクル ${batch.length}本`);
+  for (const p of batch) {
     try {
       if (await alreadyPosted(p.text, acc.access_token)) { console.log(`  ⏭️ ${acc.account} ${p.slot} 既投稿/判定不能`); posted.add(p.slot); savePosted(date, acc.account, posted); continue; }
       if (DRY) { console.log(`  [DRY] ${acc.account} ${p.slot} ${p.time}(${p.lateMin}分経過)`); continue; }
+      // 投稿直前にランダム待機（端末同士の発火時刻をばらす＝同期バースト防止）
+      const wait = Math.floor(Math.random() * PRE_POST_JITTER_MS);
+      if (wait) { console.log(`  ⏳ ${acc.account} ${p.slot} ${Math.round(wait/1000)}秒待機してから投稿`); await sleep(wait); }
       const id = await pub(p.text, acc.access_token);
       posted.add(p.slot); savePosted(date, acc.account, posted);
       console.log(`  ✅ ${acc.account} ${p.slot} ${p.time} → ${id}`);
