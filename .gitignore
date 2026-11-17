@@ -8,3 +8,5 @@ scripts/*.log
 scripts/device.json
 scripts/device-data/
 scripts/oauth.local.json
+scripts/device-staging/
+logs/

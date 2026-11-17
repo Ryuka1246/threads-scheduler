@@ -1,0 +1,9 @@
+{
+  "name": "threads-scheduler",
+  "private": true,
+  "type": "module",
+  "description": "Threads 予約投稿・コメント自動返信(アカ別プロキシ・画像/カルーセル対応)",
+  "dependencies": {
+    "undici": "^7.30.2"
+  }
+}

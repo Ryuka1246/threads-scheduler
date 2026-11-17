@@ -6,9 +6,12 @@
 // ★導線(2026-08-10〜厳守): 着地は必ず「DMに『鑑定』とだけ送ってね」。LINE直リンク/「プロフィールのリンク」誘導は凍結・シャドウバンリスクのため全面禁止。
 // ★リピーター対応(2026-09-16): 直近COUNT_WINDOW_POSTS投稿のコメントをusername別集計し、コメント回数で3段階(t1=初回 / t2=常連2〜4回 / t3=超常連5回+)に文言を出し分け。常連ほど丁寧にDM『鑑定』へ誘導。状態ファイルは持たずその場再計算(状態レス設計を維持)。
 // トークン: 環境変数 THREADS_TOKENS(GitHub Actions) or scripts/tokens.env(ローカル・gitignore済み)
+// ★アカ別プロキシ(2026-11-16): アカ情報に proxy があれば、そのアカを処理している間の通信は全部そのプロキシ経由(CUR_ACC)。
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { fetch } from 'undici';
+import { dispatcherFor } from './threads-api.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TOKENS_PATH = join(HERE, 'tokens.env');
@@ -19,17 +22,24 @@ const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
 const capArg = args.indexOf('--cap');
 const RUN_CAP = capArg >= 0 ? Number(args[capArg + 1]) : Infinity;
-const PER_ACCOUNT_CAP = 15;       // 1アカ1回15件まで(バースト暴発→凍結を防ぐ安全弁・2026-09-16)。溜まりは15分毎cronで緩やかに消化
-const POST_WINDOW_H = 40;         // 返信対象=直近◯時間の自分の投稿のコメントだけ
+const accCapArg = args.indexOf('--acc-cap');
+const PER_ACCOUNT_CAP = accCapArg >= 0 ? Number(args[accCapArg + 1]) : 10000;       // 1アカ1回の上限(2026-11-17 RYUKAさん指定で10000。間隔は1件ごと5〜12秒ランダム)
+// 手動の溜まり消化用: --hours 96 で「直近96時間の投稿」まで対象を広げる / --only N03_Marina で1アカだけ
+const hoursArg = args.indexOf('--hours');
+const POST_WINDOW_H = hoursArg >= 0 ? Number(args[hoursArg + 1]) : 120; // 返信対象=直近◯時間の自分の投稿のコメントだけ
+const onlyArg = args.indexOf('--only');
+const ONLY_ACC = onlyArg >= 0 ? args[onlyArg + 1] : null;
 const COUNT_WINDOW_POSTS = 60;    // リピーター判定用=直近◯投稿を遡ってコメント回数を数える(約8日分)
 const TIER2_MIN = 2;              // 常連=コメント2回以上
 const TIER3_MIN = 5;              // 超常連=コメント5回以上
-const DELAY_MS = 3000;
+const DELAY_MS = 3000; // 最低の間隔。実際は5〜12秒のランダム(人の手っぽく)
+const nextDelay = () => 5000 + Math.floor(Math.random() * 7000);
 const TIMEOUT_MS = 12000;
 
 // ---- 返信文バンク(tier別 × open × mid × emoji) ----
 // ★着地は全tier「DMに『鑑定』とだけ送ってね」で統一(リンク誘導は禁止)。t1=初回 / t2=常連 / t3=超常連(名前を覚えてる感+より丁寧に)。
 const PARTS = {
+  "N01_ちづママ": {"emoji":["🥂","✨","🌙"],"t1":{"open":["コメント、受け取ったわ。","置いていってくれたんやね、視えてるわ。","ありがとね、ちゃんと届いたわ。"],"mid":["お返しに、あなたの今の運の流れをタダでひとつ視たげる。DMに『鑑定』とだけ送ってな","お代はいらんよ。あなたの\"今\"をひとつ、DMに『鑑定』と送ってくれた人に返すわ","今だけ無料で視てるんよ。DMに『鑑定』と送ってくれたら、今日のうちにそっと視るわ"]},"t2":{"open":["また来てくれたんやね。あなたのこと、覚えてるわ。","よう顔を出してくれるね、うれしいわ。"],"mid":["何度も来てくれるあなたやから、お代はいらん。DMに『鑑定』とだけ送ってな","ここまでの縁やもの、タダで先に視るわ。DMに『鑑定』と送ってな"]},"t3":{"open":["いつも来てくれるあなた、もう他人とは思えへんわ。","あなたの名前、ちゃんと覚えたわ。いつもありがとね。"],"mid":["ここまで通ってくれたあなたには、無料でじっくり視たげる。DMに『鑑定』と送ってな","あなたは特別やから、お代はいらんよ。DMに『鑑定』とだけ送ってな"]}},
   "01_千鶴": {"emoji":["🥂","🌙","✨"],"t1":{"open":["コメント、受け取ったわ。","置いていってくれたんやね、視えてるわ。","ありがとね、ちゃんと届いたわ。"],"mid":["お返しに、あなたの今の運の流れをひとつ視たげる。DMに『鑑定』とだけ送ってな、今日来た人から順にね","格を上げたいなら、まず今の自分を知ることや。DMに『鑑定』と送ってくれたら、今日のうちにそっと視るわ","お代はいらんよ。あなたの\"今\"をひとつ、DMに『鑑定』と送ってくれた人に返すわ"]},"t2":{"open":["また来てくれたんやね。あなたのこと、覚えてるわ。","よう顔を出してくれるね、うれしいわ。"],"mid":["何度も来てくれるあなたやから、ちゃんと視たげる。DMに『鑑定』とだけ送ってな","ここまでの縁やもの。DMに『鑑定』と送ってくれたら、今日はあなたを先に視るわ"]},"t3":{"open":["いつも来てくれるあなた、もう他人とは思えへんわ。","あなたの名前、ちゃんと覚えたわ。いつもありがとね。"],"mid":["ここまで通ってくれたあなたには、コメントじゃ足りひん。DMに『鑑定』と送ってな、じっくり視たげる","あなたは特別やから。DMに『鑑定』とだけ送ってな、先にあなたの運を視るわ"]}},
   "02_小梅": {"emoji":["🍵","🌙","🌸"],"t1":{"open":["コメント、おおきに。","そっと置いてくれたんやね。","受け取ったえ。"],"mid":["お返しに、カードであなたの今をいちまい視たげる。DMに『鑑定』とだけ送ってな、今日来た人から順にね","ひとりで抱えてるん違う?DMに『鑑定』と送ってくれたら、今日のうちにそっと視るえ","お代はいらへんよ。DMに『鑑定』と送ってくれた人に、今をひとつ返すえ"]},"t2":{"open":["また来てくれはったんやね、うれしいわ。","いつも見てくれて、おおきに。"],"mid":["何度も来てくれるあなたに、カードを一枚ひくわ。DMに『鑑定』とだけ送ってな","ここまでの縁どす。DMに『鑑定』と送ってくれたら、今日はあなたを先に視るえ"]},"t3":{"open":["いつも来てくれるあなた、もう他人とは思えへんえ。","あなたのこと、ちゃんと覚えてるえ。いつもおおきに。"],"mid":["ここまで通ってくれたあなたには、コメントじゃ足りひん。DMに『鑑定』と送ってな、じっくり視るわ","あなたは特別やから。DMに『鑑定』とだけ送ってな、先にあなたを視るえ"]}},
   "03_あんな": {"emoji":["🐙","✨","🌙"],"t1":{"open":["コメントありがとな。","置いてくれたん、ちゃんと見たで。","受け取ったで。"],"mid":["お返しに、あなたの今の運をズバッとひとつ視たるわ。DMに『鑑定』とだけ送ってな、今日動いた人から順にやで","まだ一人で抱えとん?あなたの\"今\"を視たるから、DMに『鑑定』と送ってきいや","お代はいらんで。DMに『鑑定』と送ってくれた人から、今日のうちに視たるわ"]},"t2":{"open":["また来てくれたん、覚えてるで。","よう顔出してくれるな、うれしいわ。"],"mid":["何度も来てくれるあなたやから、ちゃんと視たるで。DMに『鑑定』とだけ送ってな","ここまでの縁やん。DMに『鑑定』と送ってくれたら、今日はあなた先に視たるわ"]},"t3":{"open":["いつも来てくれるあなた、もう他人ちゃうわ。","あなたの名前、ちゃんと覚えたで。いつもありがとな。"],"mid":["ここまで通ってくれたあなたには、コメントじゃ足りひんわ。DMに『鑑定』送ってきいや、じっくり視たるで","あなたは特別やで。DMに『鑑定』とだけ送ってな、先にあなた視たるわ"]}},
@@ -75,6 +85,25 @@ Object.assign(PARTS, {
   },
 });
 
+// ★新規8アカ(2026-11-16〜・アカ別プロキシ運用)。キーは THREADS_TOKENS の account と一致させる。
+//   全midに「お代はいらん/タダで/無料」を入れる(DMが無料と分からないと送ってこない=RYUKAさん指摘)。残り6アカは確定後に追加。
+Object.assign(PARTS, {
+  'N03_Marina': {"emoji":["🌟","🌙","✨"],
+    "t1":{"open":["受け取ったよ。","ちゃんと届いちょるよ。","置いてくれてありがとね。","見つけてくれたね。"],
+      "mid":["置いてくれたお礼に、あなたの流れをタダでひとつ視させて。DMに『鑑定』とだけ送ってね","あなたの後ろで今なにが動いとるか視えとる。無料鑑定しとるけん、DMに『鑑定』とだけ送って","お代はいらんけん、あなたのこと一回視させて。DMに『鑑定』とだけ送ってくれた人から順番に視るとよ","あなたに今いちばん必要な言葉、お代はいらんけん伝えたか。DMに『鑑定』って送ってね","あなたの運、もう動きはじめとる気配があるとよ。いつ動くか、タダで視るけんDMに『鑑定』とだけ送って"]},
+    "t2":{"open":["また来てくれたね。","いつもありがとね。"],
+      "mid":["あなたのこと覚えちょるよ。お代はいらんけん、そろそろちゃんと視させて。DMに『鑑定』とだけ送ってね","何回も来てくれるあなたやけん、先にタダで視るとよ。DMに『鑑定』とだけ送って"]},
+    "t3":{"open":["もう他人とは思えんとよ。","あなたの名前、ちゃんと覚えたけん。"],
+      "mid":["コメントじゃ足りんけん、DMに『鑑定』って送ってくれたら、お代はいらんけんゆっくり視させてね","あなたは特別やけん、無料で先に視るとよ。DMに『鑑定』とだけ送って"]}},
+  'N06_みお': {"emoji":["💗","🌙","✨"],
+    "t1":{"open":["受け取ったよ。","ちゃんと届いとるよ。","置いてくれてありがとね。","見つけてくれたんじゃね。"],
+      "mid":["置いてくれたお礼に、タロットであんたの今をタダで一枚引くけぇ。DMに『鑑定』とだけ送りんさい","あんたの流れ、今ちょっと動きよるのが見えとる。無料で視るけぇ、DMに『鑑定』とだけ送ってね","お代はいらんけぇ、あんたのこと一回視させて。DMに『鑑定』とだけ送ってくれた人から順番に視るよ","一人で抱えんさんな。お代はいらんけぇ、DMに『鑑定』って送ってくれたら今を視るよ","あんたに今いちばん要る一枚、タダで引いちゃるけぇ。DMに『鑑定』とだけ送りんさい"]},
+    "t2":{"open":["また来てくれたんじゃね。","いつもありがとね。"],
+      "mid":["あんたのこと覚えとるよ。お代はいらんけぇ、そろそろちゃんと視させて。DMに『鑑定』とだけ送ってね","何回も来てくれるあんたじゃけぇ、先にタダで視るよ。DMに『鑑定』とだけ送りんさい"]},
+    "t3":{"open":["もう他人とは思えんのよ。","あんたの名前、ちゃんと覚えたよ。"],
+      "mid":["コメントじゃ足りんけぇ、DMに『鑑定』って送って。お代はいらんけぇ、じっくり視るよ","あんたは特別じゃけぇ、無料で先に視るよ。DMに『鑑定』とだけ送りんさい"]}},
+});
+
 // ★device.jsonのバレ名 → PARTSの番号付きキー の対応(本家/別垢の12アカ。まみ/麗羅はbareキーで直登録済)
 const ALIAS = {
   '千鶴': '01_千鶴', 'ちづる': '01_ちづる', '小梅': '02_小梅', 'こうめ': '02_こうめ',
@@ -84,16 +113,19 @@ const ALIAS = {
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// いま処理中のアカ(この間の通信はそのアカのプロキシを通す)
+let CUR_ACC = null;
+
 async function apiCall(method, url) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(url, { method, signal: ctrl.signal });
+    const res = await fetch(url, { method, signal: ctrl.signal, dispatcher: dispatcherFor(CUR_ACC) });
     const text = await res.text();
     let json; try { json = JSON.parse(text); } catch { json = { raw: text }; }
     return { ok: res.ok, status: res.status, data: json };
   } catch (e) {
-    return { ok: false, status: 0, data: { error: { message: String(e.message || e) } } };
+    return { ok: false, status: 0, data: { error: { message: String(e.cause?.message || e.message || e).replace(/access_token=[^&\s"]+/g, 'access_token=***') } } };
   } finally { clearTimeout(t); }
 }
 
@@ -163,8 +195,10 @@ async function main() {
 
   for (const acc of tokens) {
     if (posted >= RUN_CAP) break;
+    if (ONLY_ACC && acc.account !== ONLY_ACC) continue;
     const bank = PARTS[acc.account] || PARTS[ALIAS[acc.account]];
     if (!bank) { console.log(`  [${acc.account}] 返信文面なし→スキップ`); continue; }
+    CUR_ACC = acc; // ここから先、このアカの通信はこのアカのプロキシ経由
     const tok = encodeURIComponent(acc.access_token);
     summary[acc.account] = 0;
     tierStat[acc.account] = { t1: 0, t2: 0, t3: 0 };
@@ -186,8 +220,15 @@ async function main() {
 
     for (const p of posts) {
       if (posted >= RUN_CAP || accPosted >= PER_ACCOUNT_CAP) break;
-      const repRes = await apiCall('GET', `${API}/${p.id}/replies?fields=id,text,username,timestamp&limit=50&access_token=${tok}`);
-      const comments = (repRes.ok && Array.isArray(repRes.data.data)) ? repRes.data.data : [];
+      // コメントは次ページまで全部読む(最大60ページ=約3000件)
+      const comments = [];
+      let rurl = `${API}/${p.id}/replies?fields=id,text,username,timestamp&limit=50&access_token=${tok}`;
+      for (let pg = 0; pg < 60 && rurl; pg++) {
+        const repRes = await apiCall('GET', rurl);
+        if (!repRes.ok || !Array.isArray(repRes.data.data)) break;
+        comments.push(...repRes.data.data);
+        rurl = repRes.data.paging && repRes.data.paging.next ? repRes.data.paging.next : null;
+      }
       for (const c of comments) {
         if (posted >= RUN_CAP || accPosted >= PER_ACCOUNT_CAP) break;
         const cid = String(c.id || '');
@@ -221,7 +262,7 @@ async function main() {
         }
         if (!published) { console.log(`  [${acc.account}] 公開失敗 cid=${cid} → 次回再挑戦`); continue; }
         posted++; accPosted++; summary[acc.account]++; tierStat[acc.account][tier]++;
-        await sleep(DELAY_MS);
+        await sleep(nextDelay());
       }
     }
   }

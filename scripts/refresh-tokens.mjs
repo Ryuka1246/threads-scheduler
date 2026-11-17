@@ -9,6 +9,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { fetch } from 'undici';
+import { dispatcherFor } from './threads-api.mjs'; // アカ別プロキシ(proxy があるアカはそのプロキシ経由で更新)
 
 const A = 'https://graph.threads.net';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -20,7 +22,7 @@ let refreshed = 0, kept = 0;
 for (const t of toks) {
   if (!t || !t.access_token) { out.push(t); kept++; continue; }
   try {
-    const r = await fetch(`${A}/refresh_access_token?grant_type=th_refresh_token&access_token=${encodeURIComponent(t.access_token)}`)
+    const r = await fetch(`${A}/refresh_access_token?grant_type=th_refresh_token&access_token=${encodeURIComponent(t.access_token)}`, { dispatcher: dispatcherFor(t) })
       .then(x => x.json());
     if (r && r.access_token) {
       out.push({ ...t, access_token: r.access_token });

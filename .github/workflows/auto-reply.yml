@@ -19,8 +19,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: 依存パッケージ(undici=プロキシ用)を入れる
+        run: npm ci
       - name: 自動返信を実行
         env:
           THREADS_TOKENS: ${{ secrets.THREADS_TOKENS }}
+          PROXY_HOST: ${{ secrets.PROXY_HOST }}
+          PROXY_USER: ${{ secrets.PROXY_USER }}
+          PROXY_PASS: ${{ secrets.PROXY_PASS }}
           REPLY_PARTS: ${{ secrets.REPLY_PARTS }}
         run: node scripts/auto-reply.mjs

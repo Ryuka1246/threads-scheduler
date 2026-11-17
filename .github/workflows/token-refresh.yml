@@ -25,10 +25,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: 依存パッケージ(undici=プロキシ用)を入れる
+        run: npm ci
 
       - name: トークンを更新(refreshed.json に出力)
         env:
           THREADS_TOKENS: ${{ secrets.THREADS_TOKENS }}
+          PROXY_HOST: ${{ secrets.PROXY_HOST }}
+          PROXY_USER: ${{ secrets.PROXY_USER }}
+          PROXY_PASS: ${{ secrets.PROXY_PASS }}
         run: node scripts/refresh-tokens.mjs > refreshed.json
 
       - name: 更新後トークンを THREADS_TOKENS Secret に書き戻す
