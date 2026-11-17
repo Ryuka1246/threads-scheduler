@@ -11,6 +11,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { fetch } from 'undici';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { dispatcherFor } from './threads-api.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -26,7 +27,7 @@ const accCapArg = args.indexOf('--acc-cap');
 const PER_ACCOUNT_CAP = accCapArg >= 0 ? Number(args[accCapArg + 1]) : 10000;       // 1アカ1回の上限(2026-11-17 RYUKAさん指定で10000。間隔は1件ごと5〜12秒ランダム)
 // 手動の溜まり消化用: --hours 96 で「直近96時間の投稿」まで対象を広げる / --only N03_Marina で1アカだけ
 const hoursArg = args.indexOf('--hours');
-const POST_WINDOW_H = hoursArg >= 0 ? Number(args[hoursArg + 1]) : 120; // 返信対象=直近◯時間の自分の投稿のコメントだけ
+const POST_WINDOW_H = hoursArg >= 0 ? Number(args[hoursArg + 1]) : 0; // 0=全期間(2026-11-17 RYUKAさん指定「一旦全期間」) // 返信対象=直近◯時間の自分の投稿のコメントだけ
 const onlyArg = args.indexOf('--only');
 const ONLY_ACC = onlyArg >= 0 ? args[onlyArg + 1] : null;
 const COUNT_WINDOW_POSTS = 60;    // リピーター判定用=直近◯投稿を遡ってコメント回数を数える(約8日分)
@@ -39,6 +40,9 @@ const TIMEOUT_MS = 12000;
 // ---- 返信文バンク(tier別 × open × mid × emoji) ----
 // ★着地は全tier「DMに『鑑定』とだけ送ってね」で統一(リンク誘導は禁止)。t1=初回 / t2=常連 / t3=超常連(名前を覚えてる感+より丁寧に)。
 const PARTS = {
+  "N02_あかり": {"emoji": ["🌙", "✨", "🌿"], "t1": {"open": ["コメント、受け取ったよ。", "置いてってくれたっちゃね、ちゃんと視えてる。", "ありがとね、届いたよ。"], "mid": ["お礼に、あなたの運命数の今の流れをタダでひとつ視るね。DMに『鑑定』とだけ送ってほしいっちゃ", "お代はいらないから、まず今のあなたを知ろ。DMに『鑑定』と送ってくれたら、今日のうちに視るよ", "今は無料で視てるっちゃ。生まれた日の数字、DMに『鑑定』とだけ送ってくれた人から順に視るね"]}, "t2": {"open": ["また来てくれたっちゃね、覚えてるよ。", "いつもありがとね、うれしい。"], "mid": ["何回も来てくれるあなただから、お代はいらない。DMに『鑑定』とだけ送ってね", "ここまで来てくれたんだもの、タダで先に視るよ。DMに『鑑定』と送ってほしいっちゃ"]}, "t3": {"open": ["いつも来てくれるあなた、もう他人じゃないっちゃ。", "あなたの名前、ちゃんと覚えたよ。いつもありがとね。"], "mid": ["ここまで通ってくれたあなたには、無料でじっくり数字を視るね。DMに『鑑定』と送ってね", "あなたは特別だから、お代はいらないよ。DMに『鑑定』とだけ送ってほしいっちゃ"]}},
+  "N05_あんな": {"emoji": ["⭐", "✨", "🌙"], "t1": {"open": ["コメントありがとな。", "置いてくれたん、ちゃんと見たで。", "受け取ったで。"], "mid": ["お礼に、あんたの生まれ月と星座から今の運をタダでひとつ視たるわ。DMに『鑑定』とだけ送ってな", "お代はいらんで。DMに『鑑定』と送ってくれたら、今日のうちにズバッと視たるわ", "今は無料で視てるねん。DMに『鑑定』とだけ送ってきいや、来た順に返すで"]}, "t2": {"open": ["また来てくれたんやな、覚えてるで。", "いつもおおきにな、うれしいわ。"], "mid": ["何回も来てくれるあんたやから、お代はいらん。DMに『鑑定』とだけ送ってな", "ここまでの縁や、タダで先に視たるわ。DMに『鑑定』と送ってきいや"]}, "t3": {"open": ["いつも来てくれるあんた、もう身内みたいなもんやで。", "あんたの名前、ちゃんと覚えたで。いつもおおきに。"], "mid": ["ここまで通ってくれたあんたには、無料でじっくり視たる。DMに『鑑定』と送ってな", "あんたは特別やから、お代はいらんで。DMに『鑑定』とだけ送ってな"]}},
+  "N07_小梅": {"emoji": ["🌷", "🌙", "✨"], "t1": {"open": ["コメント、おおきに。", "そっと置いてくれはったんやね。", "受け取ったえ。"], "mid": ["お返しに、カードであなたの今をタダでいちまい視たげる。DMに『鑑定』とだけ送ってな", "お代はいらへんよ。DMに『鑑定』と送ってくれはったら、今日のうちにそっと視るえ", "今は無料で視てるんよ。DMに『鑑定』とだけ送ってな、来てくれはった順に返すえ"]}, "t2": {"open": ["また来てくれはったんやね、うれしいわ。", "いつも見てくれて、おおきに。"], "mid": ["何度も来てくれはるあなたやから、お代はいらへん。DMに『鑑定』とだけ送ってな", "これも縁やし、タダで先に視させてもらうえ。DMに『鑑定』と送ってな"]}, "t3": {"open": ["いつも来てくれはるあなた、もう他人さんやないわ。", "あなたのお名前、ちゃんと覚えたえ。いつもおおきに。"], "mid": ["ここまで通ってくれはったあなたには、無料でじっくりカードを引くえ。DMに『鑑定』と送ってな", "あなたは特別やさかい、お代はいらへんよ。DMに『鑑定』とだけ送ってな"]}},
   "N01_ちづママ": {"emoji":["🥂","✨","🌙"],"t1":{"open":["コメント、受け取ったわ。","置いていってくれたんやね、視えてるわ。","ありがとね、ちゃんと届いたわ。"],"mid":["お返しに、あなたの今の運の流れをタダでひとつ視たげる。DMに『鑑定』とだけ送ってな","お代はいらんよ。あなたの\"今\"をひとつ、DMに『鑑定』と送ってくれた人に返すわ","今だけ無料で視てるんよ。DMに『鑑定』と送ってくれたら、今日のうちにそっと視るわ"]},"t2":{"open":["また来てくれたんやね。あなたのこと、覚えてるわ。","よう顔を出してくれるね、うれしいわ。"],"mid":["何度も来てくれるあなたやから、お代はいらん。DMに『鑑定』とだけ送ってな","ここまでの縁やもの、タダで先に視るわ。DMに『鑑定』と送ってな"]},"t3":{"open":["いつも来てくれるあなた、もう他人とは思えへんわ。","あなたの名前、ちゃんと覚えたわ。いつもありがとね。"],"mid":["ここまで通ってくれたあなたには、無料でじっくり視たげる。DMに『鑑定』と送ってな","あなたは特別やから、お代はいらんよ。DMに『鑑定』とだけ送ってな"]}},
   "01_千鶴": {"emoji":["🥂","🌙","✨"],"t1":{"open":["コメント、受け取ったわ。","置いていってくれたんやね、視えてるわ。","ありがとね、ちゃんと届いたわ。"],"mid":["お返しに、あなたの今の運の流れをひとつ視たげる。DMに『鑑定』とだけ送ってな、今日来た人から順にね","格を上げたいなら、まず今の自分を知ることや。DMに『鑑定』と送ってくれたら、今日のうちにそっと視るわ","お代はいらんよ。あなたの\"今\"をひとつ、DMに『鑑定』と送ってくれた人に返すわ"]},"t2":{"open":["また来てくれたんやね。あなたのこと、覚えてるわ。","よう顔を出してくれるね、うれしいわ。"],"mid":["何度も来てくれるあなたやから、ちゃんと視たげる。DMに『鑑定』とだけ送ってな","ここまでの縁やもの。DMに『鑑定』と送ってくれたら、今日はあなたを先に視るわ"]},"t3":{"open":["いつも来てくれるあなた、もう他人とは思えへんわ。","あなたの名前、ちゃんと覚えたわ。いつもありがとね。"],"mid":["ここまで通ってくれたあなたには、コメントじゃ足りひん。DMに『鑑定』と送ってな、じっくり視たげる","あなたは特別やから。DMに『鑑定』とだけ送ってな、先にあなたの運を視るわ"]}},
   "02_小梅": {"emoji":["🍵","🌙","🌸"],"t1":{"open":["コメント、おおきに。","そっと置いてくれたんやね。","受け取ったえ。"],"mid":["お返しに、カードであなたの今をいちまい視たげる。DMに『鑑定』とだけ送ってな、今日来た人から順にね","ひとりで抱えてるん違う?DMに『鑑定』と送ってくれたら、今日のうちにそっと視るえ","お代はいらへんよ。DMに『鑑定』と送ってくれた人に、今をひとつ返すえ"]},"t2":{"open":["また来てくれはったんやね、うれしいわ。","いつも見てくれて、おおきに。"],"mid":["何度も来てくれるあなたに、カードを一枚ひくわ。DMに『鑑定』とだけ送ってな","ここまでの縁どす。DMに『鑑定』と送ってくれたら、今日はあなたを先に視るえ"]},"t3":{"open":["いつも来てくれるあなた、もう他人とは思えへんえ。","あなたのこと、ちゃんと覚えてるえ。いつもおおきに。"],"mid":["ここまで通ってくれたあなたには、コメントじゃ足りひん。DMに『鑑定』と送ってな、じっくり視るわ","あなたは特別やから。DMに『鑑定』とだけ送ってな、先にあなたを視るえ"]}},
@@ -115,12 +119,14 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // いま処理中のアカ(この間の通信はそのアカのプロキシを通す)
 let CUR_ACC = null;
+const accStore = new AsyncLocalStorage(); // 同時に複数アカを処理しても、通信はそれぞれのアカのプロキシ経由
+const curAcc = () => accStore.getStore() || CUR_ACC;
 
 async function apiCall(method, url) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(url, { method, signal: ctrl.signal, dispatcher: dispatcherFor(CUR_ACC) });
+    const res = await fetch(url, { method, signal: ctrl.signal, dispatcher: dispatcherFor(curAcc()) });
     const text = await res.text();
     let json; try { json = JSON.parse(text); } catch { json = { raw: text }; }
     return { ok: res.ok, status: res.status, data: json };
@@ -193,12 +199,11 @@ async function main() {
   const tierStat = {};
   console.log(`[auto-reply] 開始 ${DRY ? '(DRYモード:投稿しない)' : '(本番)'} / RUN_CAP=${RUN_CAP} / リピーター段階=t1<${TIER2_MIN}≤t2<${TIER3_MIN}≤t3 / 対象=${tokens.length}アカ`);
 
-  for (const acc of tokens) {
-    if (posted >= RUN_CAP) break;
-    if (ONLY_ACC && acc.account !== ONLY_ACC) continue;
+  const runAccount = async (acc) => {
+    if (posted >= RUN_CAP) return;
+    if (ONLY_ACC && acc.account !== ONLY_ACC) return;
     const bank = PARTS[acc.account] || PARTS[ALIAS[acc.account]];
-    if (!bank) { console.log(`  [${acc.account}] 返信文面なし→スキップ`); continue; }
-    CUR_ACC = acc; // ここから先、このアカの通信はこのアカのプロキシ経由
+    if (!bank) { console.log(`  [${acc.account}] 返信文面なし→スキップ`); return; }
     const tok = encodeURIComponent(acc.access_token);
     summary[acc.account] = 0;
     tierStat[acc.account] = { t1: 0, t2: 0, t3: 0 };
@@ -206,7 +211,18 @@ async function main() {
 
     const meRes = await apiCall('GET', `${API}/me?fields=username&access_token=${tok}`);
     const myUser = meRes.ok ? meRes.data.username : null;
-    if (!myUser) { console.log(`  [${acc.account}] アカ情報取得エラー(トークン失効?): ${JSON.stringify(meRes.data.error||meRes.data).slice(0,140)}`); continue; }
+    if (!myUser) { console.log(`  [${acc.account}] アカ情報取得エラー(トークン失効?): ${JSON.stringify(meRes.data.error||meRes.data).slice(0,140)}`); return; }
+
+    // Threadsの返信上限(24時間で1000件)の残りを確認し、超えないようにする
+    let accCap = PER_ACCOUNT_CAP;
+    const lim = await apiCall('GET', `${API}/me/threads_publishing_limit?fields=reply_quota_usage,reply_config&access_token=${tok}`);
+    const L = lim.ok && Array.isArray(lim.data.data) ? lim.data.data[0] : null;
+    if (L && L.reply_config) {
+      const left = (L.reply_config.quota_total || 1000) - (L.reply_quota_usage || 0);
+      accCap = Math.min(accCap, Math.max(0, left));
+      console.log(`  [${acc.account}] 返信上限の残り=${left}件(24時間)`);
+      if (accCap <= 0) return;
+    }
 
     const { countMap, scanned } = await buildCountMap(tok, myUser);
     const repeaters = Object.values(countMap).filter(n => n >= TIER2_MIN).length;
@@ -214,12 +230,19 @@ async function main() {
 
     const tierSeq = { t1: 0, t2: 0, t3: 0 };
 
-    const postsRes = await apiCall('GET', `${API}/me/threads?fields=id,timestamp&limit=25&access_token=${tok}`);
-    const posts = (postsRes.ok && Array.isArray(postsRes.data.data) ? postsRes.data.data : [])
-      .filter(p => { const ts = Date.parse(p.timestamp || ''); return p.id && !isNaN(ts) && (now - ts) <= POST_WINDOW_H * 3600 * 1000; });
+    // 自分の投稿を全ページ読む(POST_WINDOW_H=0なら全期間)
+    const posts = [];
+    let purl = `${API}/me/threads?fields=id,timestamp&limit=100&access_token=${tok}`;
+    for (let pg = 0; pg < 50 && purl; pg++) {
+      const postsRes = await apiCall('GET', purl);
+      if (!postsRes.ok || !Array.isArray(postsRes.data.data)) break;
+      posts.push(...postsRes.data.data.filter(p => { const ts = Date.parse(p.timestamp || ''); return p.id && !isNaN(ts) && (!POST_WINDOW_H || (now - ts) <= POST_WINDOW_H * 3600 * 1000); }));
+      purl = postsRes.data.paging && postsRes.data.paging.next ? postsRes.data.paging.next : null;
+    }
+    console.log(`  [${acc.account}] 対象投稿=${posts.length}本`);
 
     for (const p of posts) {
-      if (posted >= RUN_CAP || accPosted >= PER_ACCOUNT_CAP) break;
+      if (posted >= RUN_CAP || accPosted >= accCap) break;
       // コメントは次ページまで全部読む(最大60ページ=約3000件)
       const comments = [];
       let rurl = `${API}/${p.id}/replies?fields=id,text,username,timestamp&limit=50&access_token=${tok}`;
@@ -230,7 +253,7 @@ async function main() {
         rurl = repRes.data.paging && repRes.data.paging.next ? repRes.data.paging.next : null;
       }
       for (const c of comments) {
-        if (posted >= RUN_CAP || accPosted >= PER_ACCOUNT_CAP) break;
+        if (posted >= RUN_CAP || accPosted >= accCap) break;
         const cid = String(c.id || '');
         const text = String(c.text || '');
         const user = String(c.username || '');
@@ -265,7 +288,9 @@ async function main() {
         await sleep(nextDelay());
       }
     }
-  }
+  };
+  // アカごとに同時に処理(それぞれ自分のプロキシ経由)
+  await Promise.all(tokens.map(acc => accStore.run(acc, () => runAccount(acc).catch(e => console.log(`  [${acc.account}] エラー: ${String(e.message || e).slice(0, 140)}`)))));
   console.log(`[auto-reply] 完了 / 今回返信=${posted}件 / アカ別=${JSON.stringify(summary)}`);
   console.log(`[auto-reply] tier内訳=${JSON.stringify(tierStat)}`);
 }
