@@ -1,16 +1,16 @@
 // 1日分の投稿データを「予約投稿で使える形」にするローカル用スクリプト。
 //   入力: posts/{日付}.local.json … images にPC上の画像パスが入った投稿データ(Claude Codeが毎朝作る)
 //   処理: ①中身チェック(500字以内・画像は20枚/8MBまで・ファイルがあるか)
-//         ②画像を Cloudflare R2 に上げる(推測されにくいランダム名)→ images を公開URLに置き換え
+//         ②画像を画像専用の公開GitHubリポジトリ(static-files)に置く(推測されにくいランダム名)→ images を公開URLに置き換え
 //         ③posts/{日付}.json に保存
 //         ④今日以降の posts/*.json をまとめて gzip+base64 → GitHub Secret POSTS_JSON に登録
 // 実行: node scripts/build-day.mjs 2026-11-17 [--dry]
 //   --dry … チェックと変換内容の表示だけ(R2へのアップロードとSecret登録はしない)
 // 設定(.env / threads-scheduler直下・gitignore済み):
-//   R2_BUCKET=threads-images
-//   R2_PUBLIC_BASE=https://pub-xxxxxxxx.r2.dev
+//   IMG_REPO_DIR=C:/Users/ryu_c/Documents/static-files   (画像リポジトリのローカルの場所)
+//   IMG_BASE=https://raw.githubusercontent.com/Ryuka1246/static-files/main
 //   GH_REPO=Ryuka1246/threads-scheduler
-import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync, copyFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -34,7 +34,7 @@ if (existsSync(envPath)) {
     if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
   }
 }
-const need = ['R2_BUCKET', 'R2_PUBLIC_BASE', 'GH_REPO'];
+const need = ['IMG_REPO_DIR', 'IMG_BASE', 'GH_REPO'];
 if (!DRY) for (const k of need) if (!env[k]) { console.error(`.env に ${k} がありません`); process.exit(1); }
 
 // ---- ① 入力を読んでチェック ----
@@ -64,20 +64,20 @@ for (const [i, p] of posts.entries()) {
 }
 if (errors.length) { console.error('入力エラー:\n  ' + errors.join('\n  ')); process.exit(1); }
 
-// ---- ② 画像を R2 へ(同じファイルは1回だけ上げる。対応表 posts/{日付}.uploads.json に記録)----
+// ---- ② 画像を GitHub の画像リポジトリへ(同じファイルは1回だけ。対応表 posts/{日付}.uploads.json に記録)----
 const upPath = join(POSTS_DIR, `${date}.uploads.json`);
 const uploaded = existsSync(upPath) ? JSON.parse(readFileSync(upPath, 'utf8')) : {};
+let added = 0;
 function upload(localPath) {
   if (uploaded[localPath]) return uploaded[localPath];
   const ext = extname(localPath).toLowerCase() === '.png' ? '.png' : '.jpg';
   const key = `${date}/${randomBytes(12).toString('hex')}${ext}`;
-  const url = `${(env.R2_PUBLIC_BASE || 'https://(R2公開URL)').replace(/\/$/, '')}/${key}`;
+  const url = `${(env.IMG_BASE || 'https://(画像URL)').replace(/\/$/, '')}/${key}`;
   if (DRY) return url;
-  // wrangler で R2 に置く(ログインは wrangler login 済みの前提)
-  execFileSync('npx', ['--yes', 'wrangler', 'r2', 'object', 'put', `${env.R2_BUCKET}/${key}`, '--file', localPath,
-    '--content-type', ext === '.png' ? 'image/png' : 'image/jpeg', '--remote'], { stdio: 'inherit', shell: process.platform === 'win32' });
+  mkdirSync(join(env.IMG_REPO_DIR, date), { recursive: true });
+  copyFileSync(localPath, join(env.IMG_REPO_DIR, key)); // 画像リポジトリにコピー(あとでまとめてpush)
   uploaded[localPath] = url;
-  writeFileSync(upPath, JSON.stringify(uploaded, null, 2)); // 1枚ごとに記録(途中で止まってもやり直しで二重に上げない)
+  added++;
   return url;
 }
 
@@ -87,7 +87,20 @@ for (const p of out) {
   console.log(`  ${p.time.padStart(5, '0')} ${p.account} ${p.slot} ${n === 0 ? '文字' : n === 1 ? '画像1枚' : `カルーセル${n}枚`}${p.tree_reply ? ' +ツリー' : ''}`);
 }
 
-if (DRY) { console.log(`[DRY] チェックOK ${out.length}本(R2アップロードとSecret登録はしていない)`); process.exit(0); }
+if (DRY) { console.log(`[DRY] チェックOK ${out.length}本(画像アップロードとSecret登録はしていない)`); process.exit(0); }
+
+// 画像があればまとめて push → 公開URLで読めるのを確認してから先へ進む
+if (added) {
+  const git = (...a) => execFileSync('git', ['-C', env.IMG_REPO_DIR, ...a], { stdio: 'inherit' });
+  git('add', '-A'); git('commit', '-q', '-m', `add ${date}`); git('push', '-q');
+  writeFileSync(upPath, JSON.stringify(uploaded, null, 2));
+  for (const u of Object.values(uploaded)) {
+    let ok = false;
+    for (let i = 0; i < 10 && !ok; i++) { const r = await fetch(u, { method: 'HEAD' }).catch(() => null); ok = !!(r && r.ok); if (!ok) await new Promise(r => setTimeout(r, 3000)); }
+    if (!ok) { console.error(`画像の公開URLが開けません: ${u}`); process.exit(1); }
+  }
+  console.log(`  画像${added}枚をアップロードし、公開URLで開けるのを確認`);
+}
 
 // ---- ③ 保存 ----
 writeFileSync(join(POSTS_DIR, `${date}.json`), JSON.stringify(out, null, 2));
