@@ -1,0 +1,20 @@
+name: Proxy Check
+# 手動実行: 各アカの通信がプロキシ経由になっているか確認(読み取りのみ)
+on:
+  workflow_dispatch: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: プロキシ確認
+        env:
+          THREADS_TOKENS: ${{ secrets.THREADS_TOKENS }}
+          PROXY_HOST: ${{ secrets.PROXY_HOST }}
+          PROXY_USER: ${{ secrets.PROXY_USER }}
+          PROXY_PASS: ${{ secrets.PROXY_PASS }}
+        run: node scripts/proxy-check-ci.mjs
