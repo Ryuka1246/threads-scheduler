@@ -65,7 +65,7 @@ if (!due.length) process.exit(0);
 
 async function alreadyPosted(acc, text) {
   const data = await recentPosts(acc);
-  if (data === null) return true; // 取得失敗→安全側(投稿済み扱い=この枠は見送り、次の実行で再確認)
+  if (data === null) return null; // 取得失敗→判定不能(呼び出し側で見送り、記録はしない)
   const key = text.slice(0, 24);
   const cutoff = Date.now() - 20 * 3600 * 1000;
   return data.some(p => (p.text || '').slice(0, 24) === key && Date.parse(p.timestamp || 0) >= cutoff);
@@ -80,7 +80,10 @@ for (const p of due) {
   if (postedSet.has(key)) { console.log(`  ⏭️ ${p.account} ${p.slot} 記録済み(再投稿しない)`); skip++; continue; } // ★削除されても再投稿しない
   try {
     if ((doneThisRun[p.account] || 0) >= MAX_PER_ACCOUNT) { console.log(`  ⏸️ ${p.account} ${p.slot} 次の実行へ回す(1回1本まで)`); continue; }
-    if (await alreadyPosted(acc, p.text)) { console.log(`  ⏭️ ${p.account} ${p.slot} 既投稿/判定不能スキップ`); skip++; postedSet.add(key); savePosted(); continue; }
+    const dup = await alreadyPosted(acc, p.text);
+    // 取得失敗(判定不能)は記録せず見送るだけ→次の実行で確かめ直す
+    if (dup === null) { console.log(`  ⏸️ ${p.account} ${p.slot} 判定不能→次の実行で再確認`); skip++; continue; }
+    if (dup) { console.log(`  ⏭️ ${p.account} ${p.slot} 既投稿スキップ`); skip++; postedSet.add(key); savePosted(); continue; }
     const imgs = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
     const kind = imgs.length === 0 ? '文字' : imgs.length === 1 ? '画像1枚' : `カルーセル${imgs.length}枚`;
     if (DRY) { console.log(`  [DRY] ${p.account} ${p.slot} ${p.time}(${p.lateMin}分経過) ${kind}`); continue; }
