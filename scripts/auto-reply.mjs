@@ -34,7 +34,9 @@ const COUNT_WINDOW_POSTS = 60;    // リピーター判定用=直近◯投稿を
 const TIER2_MIN = 2;              // 常連=コメント2回以上
 const TIER3_MIN = 5;              // 超常連=コメント5回以上
 const DELAY_MS = 3000; // 最低の間隔。実際は5〜12秒のランダム(人の手っぽく)
-const nextDelay = () => 5000 + Math.floor(Math.random() * 7000);
+// --slow: 溜まった分をゆっくり返す用。1件ごとに60〜120秒ランダムにあける(大量返信でのスパム判定を避ける)
+const SLOW = args.includes('--slow');
+const nextDelay = () => SLOW ? 60000 + Math.floor(Math.random() * 60000) : 5000 + Math.floor(Math.random() * 7000);
 const TIMEOUT_MS = 12000;
 
 // ---- 返信文バンク(tier別 × open × mid × emoji) ----

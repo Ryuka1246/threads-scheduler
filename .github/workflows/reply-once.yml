@@ -1,0 +1,30 @@
+name: Reply Once (slow)
+# 溜まったコメントに1回だけゆっくり返信する手動用。定期実行はしない(Auto Reply は停止中のまま)。
+# 対象=直近240時間(10日)の投稿のコメントのうち未返信のもの / 1件ごと60〜120秒あける
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: auto-reply
+  cancel-in-progress: false
+
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 依存パッケージ(undici=プロキシ用)を入れる
+        run: npm ci
+      - name: ゆっくり返信を実行
+        env:
+          THREADS_TOKENS: ${{ secrets.THREADS_TOKENS }}
+          PROXY_HOST: ${{ secrets.PROXY_HOST }}
+          PROXY_USER: ${{ secrets.PROXY_USER }}
+          PROXY_PASS: ${{ secrets.PROXY_PASS }}
+          REPLY_PARTS: ${{ secrets.REPLY_PARTS }}
+        run: node scripts/auto-reply.mjs --slow --hours 240
